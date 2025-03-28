@@ -58,6 +58,14 @@ const ARROW_MARK: &str = "→";
     after_long_help = concat!("Build identity: ", env!("BUILD_IDENTITY", "unknown"), "\nNewest file: ", env!("NEWEST_FILE", "unknown"))
 )]
 struct Cli {
+    /// Enable verbose output with detailed information
+    #[clap(short, long, global = true)]
+    verbose: bool,
+
+    /// Show all files including identical ones when checking status
+    #[clap(short, long, global = true)]
+    all: bool,
+
     #[clap(subcommand)]
     command: Option<Commands>,
 }
@@ -104,12 +112,14 @@ enum Commands {
 // Output formatter helper
 struct Formatter {
     stdout: StandardStream,
+    verbose: bool,
 }
 
 impl Formatter {
-    fn new() -> Self {
+    fn new(verbose: bool) -> Self {
         Self {
             stdout: StandardStream::stdout(ColorChoice::Auto),
+            verbose,
         }
     }
     
@@ -357,6 +367,24 @@ impl Formatter {
     fn header(&mut self, message: &str) -> Result<()> {
         self.print(message, None, true)?;
         writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    // Only output in verbose mode
+    fn verbose(&mut self, message: &str) -> Result<()> {
+        if self.verbose {
+            // Special handling for example output display
+            if message.starts_with("EXAMPLE:") {
+                let example_content = message.trim_start_matches("EXAMPLE:");
+                write!(self.stdout, "{}", example_content)?;
+                return Ok(());
+            }
+            
+            self.print(&format!("{} ", INFO_MARK), Some(Color::White), false)?;
+            self.print("Verbose: ", Some(Color::White), true)?;
+            self.print(message, None, false)?;
+            writeln!(self.stdout)?;
+        }
         Ok(())
     }
 }
@@ -647,24 +675,27 @@ struct FileManager<'a> {
     formatter: &'a mut Formatter,
     dotignore: &'a DotIgnore,
     source: FileSource,
+    show_all: bool,
 }
 
 impl<'a> FileManager<'a> {
-    fn new(paths: &'a Paths, formatter: &'a mut Formatter, dotignore: &'a DotIgnore) -> Self {
+    fn new(paths: &'a Paths, formatter: &'a mut Formatter, dotignore: &'a DotIgnore, show_all: bool) -> Self {
         Self {
             paths,
             formatter,
             dotignore,
             source: FileSource::Filesystem,
+            show_all,
         }
     }
     
-    fn from_embedded(paths: &'a Paths, formatter: &'a mut Formatter, dotignore: &'a DotIgnore) -> Self {
+    fn from_embedded(paths: &'a Paths, formatter: &'a mut Formatter, dotignore: &'a DotIgnore, show_all: bool) -> Self {
         Self {
             paths,
             formatter,
             dotignore,
             source: FileSource::Embedded,
+            show_all,
         }
     }
     
@@ -672,27 +703,41 @@ impl<'a> FileManager<'a> {
         let config_file = self.paths.config_file_path(section, file);
         let display_path = format!("{}/{}", section, file);
         
+        self.formatter.verbose(&format!("Processing file: {}", display_path))?;
+        self.formatter.verbose(&format!("Target path: {}", config_file.display()))?;
+        
         if self.dotignore.is_ignored(file) {
+            self.formatter.verbose(&format!("File matched dotignore pattern"))?;
             self.formatter.warning(&format!("Ignored by .dotignore: {}", display_path))?;
             return Ok(());
         }
         
         let file_exists = match self.source {
-            FileSource::Filesystem => self.paths.repo_file_path(section, file).exists(),
-            FileSource::Embedded => DotfilesArchive::file_exists(section, file),
+            FileSource::Filesystem => {
+                let repo_file = self.paths.repo_file_path(section, file);
+                self.formatter.verbose(&format!("Checking source file: {}", repo_file.display()))?;
+                repo_file.exists()
+            },
+            FileSource::Embedded => {
+                self.formatter.verbose(&format!("Checking embedded file: config/{}/{}", section, file))?;
+                DotfilesArchive::file_exists(section, file)
+            },
         };
         
         if file_exists {
             if let Some(parent) = config_file.parent() {
+                self.formatter.verbose(&format!("Creating parent directory: {}", parent.display()))?;
                 create_dir_all(parent)?;
             }
             
             match self.source {
                 FileSource::Filesystem => {
                     let repo_file = self.paths.repo_file_path(section, file);
+                    self.formatter.verbose(&format!("Copying from: {} to: {}", repo_file.display(), config_file.display()))?;
                     fs::copy(&repo_file, &config_file)?;
                 },
                 FileSource::Embedded => {
+                    self.formatter.verbose(&format!("Extracting embedded file to: {}", config_file.display()))?;
                     let content = DotfilesArchive::get_file(section, file)?;
                     fs::write(&config_file, content)?;
                 },
@@ -700,6 +745,7 @@ impl<'a> FileManager<'a> {
             
             self.formatter.installed(&format!("Installed to local: {}", display_path))?;
         } else {
+            self.formatter.verbose(&format!("Source file does not exist"))?;
             self.formatter.warning(&format!("File not found: {}", display_path))?;
         }
         
@@ -711,19 +757,29 @@ impl<'a> FileManager<'a> {
         let config_file = self.paths.config_file_path(section, file);
         let display_path = format!("{}/{}", section, file);
         
+        self.formatter.verbose(&format!("Processing file for sync: {}", display_path))?;
+        self.formatter.verbose(&format!("Local path: {}", config_file.display()))?;
+        self.formatter.verbose(&format!("Repo path: {}", repo_file.display()))?;
+        
         if self.dotignore.is_ignored(file) {
+            self.formatter.verbose(&format!("File matched dotignore pattern"))?;
             self.formatter.warning(&format!("Ignored by .dotignore: {}", display_path))?;
             return Ok(());
         }
         
         if config_file.exists() {
+            self.formatter.verbose(&format!("Local file exists, proceeding with sync"))?;
+            
             if let Some(parent) = repo_file.parent() {
+                self.formatter.verbose(&format!("Creating repo parent directory: {}", parent.display()))?;
                 create_dir_all(parent)?;
             }
             
+            self.formatter.verbose(&format!("Copying from local: {} to repo: {}", config_file.display(), repo_file.display()))?;
             fs::copy(&config_file, &repo_file)?;
             self.formatter.synced(&format!("Synced to repo: {}", display_path))?;
         } else {
+            self.formatter.verbose(&format!("Local file does not exist, cannot sync"))?;
             self.formatter.warning(&format!("Local file not found: {}", display_path))?;
         }
         
@@ -734,36 +790,65 @@ impl<'a> FileManager<'a> {
         let config_file = self.paths.config_file_path(section, file);
         let display_path = format!("{}/{}", section, file);
         
+        self.formatter.verbose(&format!("Checking status of file: {}", display_path))?;
+        self.formatter.verbose(&format!("Local path: {}", config_file.display()))?;
+        
         if self.dotignore.is_ignored(file) {
+            self.formatter.verbose(&format!("File matched dotignore pattern"))?;
             self.formatter.warning(&format!("Ignored by .dotignore: {}", display_path))?;
             return Ok(());
         }
         
         let file_exists = match self.source {
-            FileSource::Filesystem => self.paths.repo_file_path(section, file).exists(),
-            FileSource::Embedded => DotfilesArchive::file_exists(section, file),
+            FileSource::Filesystem => {
+                let repo_file = self.paths.repo_file_path(section, file);
+                self.formatter.verbose(&format!("Checking if file exists in repo: {}", repo_file.display()))?;
+                repo_file.exists()
+            },
+            FileSource::Embedded => {
+                self.formatter.verbose(&format!("Checking if file exists in embedded archive: config/{}/{}", section, file))?;
+                DotfilesArchive::file_exists(section, file)
+            },
         };
         
         if !file_exists {
+            self.formatter.verbose(&format!("File does not exist in source"))?;
             self.formatter.error(&format!("Missing in source: {}", display_path))?;
             return Ok(());
         }
         
         if !config_file.exists() {
+            self.formatter.verbose(&format!("File does not exist in local config"))?;
             self.formatter.not_installed(&format!("Not installed: {}", display_path))?;
             return Ok(());
         }
         
         // Compare files
+        self.formatter.verbose(&format!("Both source and local files exist, comparing content"))?;
         let source_content = match self.source {
-            FileSource::Filesystem => fs::read(&self.paths.repo_file_path(section, file))?,
-            FileSource::Embedded => DotfilesArchive::get_file(section, file)?,
+            FileSource::Filesystem => {
+                let repo_file = self.paths.repo_file_path(section, file);
+                self.formatter.verbose(&format!("Reading repo file: {}", repo_file.display()))?;
+                fs::read(&repo_file)?
+            },
+            FileSource::Embedded => {
+                self.formatter.verbose(&format!("Reading embedded file: config/{}/{}", section, file))?;
+                DotfilesArchive::get_file(section, file)?
+            },
         };
+        
+        self.formatter.verbose(&format!("Reading local file: {}", config_file.display()))?;
         let config_content = fs::read(&config_file)?;
         
         if source_content == config_content {
-            self.formatter.identical(&format!("Identical: {}", display_path))?;
+            self.formatter.verbose(&format!("Files are identical"))?;
+            
+            // Only show identical files if show_all is true
+            if self.show_all {
+                self.formatter.identical(&format!("Identical: {}", display_path))?;
+            }
         } else {
+            self.formatter.verbose(&format!("Files have been modified locally"))?;
             self.formatter.modified(&format!("Modified locally: {}", display_path))?;
         }
         
@@ -826,6 +911,7 @@ impl<'a> FileManager<'a> {
     }
 }
 
+#[derive(Debug)]
 enum AppMode {
     // Use files from local filesystem
     FilesystemMode,
@@ -840,12 +926,14 @@ struct App {
     distribution_parser: DistributionParser,
     dotignore: DotIgnore,
     mode: AppMode,
+    verbose: bool,
+    show_all: bool,
 }
 
 impl App {
-    fn new() -> Result<Self> {
+    fn new(verbose: bool, show_all: bool) -> Result<Self> {
         let paths = Paths::new()?;
-        let formatter = Formatter::new();
+        let formatter = Formatter::new(verbose);
         let distribution_parser = DistributionParser::new(paths.distribution_file.clone());
         let dotignore = DotIgnore::new(&paths.dotignore_file)?;
         
@@ -855,13 +943,15 @@ impl App {
             distribution_parser,
             dotignore,
             mode: AppMode::FilesystemMode,
+            verbose,
+            show_all,
         })
     }
     
     // Create an app instance that uses the embedded files
-    fn from_embedded() -> Result<Self> {
+    fn from_embedded(verbose: bool, show_all: bool) -> Result<Self> {
         let paths = Paths::new()?;
-        let formatter = Formatter::new();
+        let formatter = Formatter::new(verbose);
         let distribution_parser = DistributionParser::from_embedded();
         let dotignore = DotIgnore::from_embedded()?;
         
@@ -871,6 +961,8 @@ impl App {
             distribution_parser,
             dotignore,
             mode: AppMode::EmbeddedMode,
+            verbose,
+            show_all,
         })
     }
     
@@ -926,32 +1018,47 @@ impl App {
     }
     
     fn process_section(&mut self, tool: &str, action: &str) -> Result<()> {
+        self.formatter.verbose(&format!("Reading distribution file for tool: {}", tool))?;
         let files = self.distribution_parser.get_files(tool)?;
         
-        self.formatter
-            .info(&format!("Processing tool: {}", tool))?;
+        self.formatter.verbose(&format!("Found {} files for tool '{}'", files.len(), tool))?;
+        self.formatter.info(&format!("Processing tool: {}", tool))?;
         
         let dest_dir = self.paths.config_section_dir(tool);
+        self.formatter.verbose(&format!("Tool config directory: {}", dest_dir.display()))?;
+        
         if !dest_dir.exists() {
+            self.formatter.verbose(&format!("Config directory for '{}' does not exist", tool))?;
+            
             // Only create directories for commands that should modify the filesystem
             if action == "install" || action == "sync" {
-                self.formatter
-                    .action(&format!("Creating directory: {}", dest_dir.display()))?;
+                self.formatter.verbose(&format!("Action '{}' requires directory creation", action))?;
+                self.formatter.action(&format!("Creating directory: {}", dest_dir.display()))?;
                 create_dir_all(&dest_dir)?;
+            } else {
+                self.formatter.verbose(&format!("Skipping directory creation for read-only action: {}", action))?;
             }
+        } else {
+            self.formatter.verbose(&format!("Config directory for '{}' already exists", tool))?;
         }
         
-        let mut file_manager = match self.mode {
-            AppMode::FilesystemMode => FileManager::new(&self.paths, &mut self.formatter, &self.dotignore),
-            AppMode::EmbeddedMode => FileManager::from_embedded(&self.paths, &mut self.formatter, &self.dotignore),
-        };
+        self.formatter.verbose(&format!("Creating file manager for mode: {:?}", self.mode))?;
         
         for file in files {
+            self.formatter.verbose(&format!("Processing file '{}' with action '{}'", file, action))?;
+            
+            // Create a new file manager for each file to avoid borrowing issues
+            let mut file_manager = match self.mode {
+                AppMode::FilesystemMode => FileManager::new(&self.paths, &mut self.formatter, &self.dotignore, self.show_all),
+                AppMode::EmbeddedMode => FileManager::from_embedded(&self.paths, &mut self.formatter, &self.dotignore, self.show_all),
+            };
+            
             match action {
                 "install" => file_manager.install_file(tool, &file)?,
                 "sync" => file_manager.sync_file(tool, &file)?,
                 "status" => file_manager.check_status(tool, &file)?,
                 _ => {
+                    self.formatter.verbose(&format!("Invalid action requested: {}", action))?;
                     return Err(DotfilesError::InvalidCommand(format!(
                         "Invalid action: {}",
                         action
@@ -960,95 +1067,169 @@ impl App {
             }
         }
         
+        self.formatter.verbose(&format!("Completed processing tool: {}", tool))?;
         Ok(())
     }
     
     fn run_sync(&mut self) -> Result<()> {
         self.formatter.header("Syncing dotfiles...")?;
+        self.formatter.verbose("Starting dotfiles sync operation")?;
         
         let tools = self.distribution_parser.get_tools()?;
+        self.formatter.verbose(&format!("Found {} tools in distribution file", tools.len()))?;
+        
         for tool in tools {
             self.process_section(&tool, "sync")?;
         }
         
+        self.formatter.verbose("Sync operation completed")?;
         Ok(())
     }
     
     fn run_status(&mut self) -> Result<()> {
         self.formatter.header("Checking dotfiles status...")?;
+        self.formatter.verbose("Starting dotfiles status check")?;
         
         let tools = self.distribution_parser.get_tools()?;
+        self.formatter.verbose(&format!("Found {} tools in distribution file", tools.len()))?;
+        
+        // Add example output
+        if self.verbose {
+            self.formatter.verbose("Sample output for reference:")?;
+            self.formatter.verbose("EXAMPLE:✓ Identical: nvim/icons.md\n✓ Identical: nvim/init.lua\n✓")?;
+            self.formatter.verbose("Actual file status:")?;
+        }
+        
+        // Calculate total files
+        let mut total_files = 0;
+        for tool in &tools {
+            if let Ok(files) = self.distribution_parser.get_files(tool) {
+                total_files += files.len();
+            }
+        }
+        
+        // Process each tool
         for tool in tools {
             self.process_section(&tool, "status")?;
         }
         
+        // Show summary of files checked
+        if !self.show_all {
+            self.formatter.info(&format!("Status check completed: {} files checked (use --all to see identical files)", total_files))?;
+        } else {
+            self.formatter.info(&format!("Status check completed: {} files checked", total_files))?;
+        }
+        
+        self.formatter.verbose("Status check completed")?;
         Ok(())
     }
     
     fn run_install(&mut self) -> Result<()> {
         self.formatter.header("Installing dotfiles...")?;
+        self.formatter.verbose("Starting dotfiles installation")?;
         
         let tools = self.distribution_parser.get_tools()?;
+        self.formatter.verbose(&format!("Found {} tools in distribution file", tools.len()))?;
+        
         for tool in tools {
             self.process_section(&tool, "install")?;
         }
         
+        self.formatter.verbose("Installation completed")?;
         Ok(())
     }
     
     fn run_add(&mut self, tool: &str, file: &str) -> Result<()> {
-        let mut file_manager = FileManager::new(&self.paths, &mut self.formatter, &self.dotignore);
+        self.formatter.verbose(&format!("Adding file {}/{} to tracking", tool, file))?;
+        let mut file_manager = FileManager::new(&self.paths, &mut self.formatter, &self.dotignore, self.show_all);
         file_manager.add_file(tool, file)?;
+        self.formatter.verbose("File added successfully")?;
         Ok(())
     }
     
     fn run_remove(&mut self, tool: &str, file: &str) -> Result<()> {
-        let mut file_manager = FileManager::new(&self.paths, &mut self.formatter, &self.dotignore);
+        self.formatter.verbose(&format!("Removing file {}/{} from tracking", tool, file))?;
+        let mut file_manager = FileManager::new(&self.paths, &mut self.formatter, &self.dotignore, self.show_all);
         file_manager.remove_file(tool, file)?;
+        self.formatter.verbose("File removed successfully")?;
         Ok(())
     }
     
     fn run_precheck(&mut self) -> Result<()> {
         self.formatter.header("Checking distribution file...")?;
+        self.formatter.verbose("Starting distribution file precheck")?;
         
         // Check if distribution file exists
+        self.formatter.verbose(&format!("Checking distribution file at: {}", self.paths.distribution_file.display()))?;
         self.formatter.print("Distribution file: ", Some(Color::Cyan), false)?;
         self.formatter.print(&self.paths.distribution_file.to_string_lossy(), None, false)?;
         writeln!(self.formatter.stdout)?;
         
         if !self.paths.distribution_file.exists() {
+            self.formatter.verbose("Distribution file does not exist")?;
             self.formatter.error("Distribution file not found")?;
             return Err(DotfilesError::DistributionNotFound(
                 self.paths.distribution_file.to_string_lossy().to_string()).into());
         }
         
+        self.formatter.verbose("Distribution file exists, proceeding with checks")?;
         self.formatter.validation("Distribution file exists")?;
         
         // Check if it's valid TOML
+        self.formatter.verbose("Checking TOML syntax validity")?;
         self.formatter.print("Checking TOML syntax... ", Some(Color::Cyan), false)?;
         
         let content = fs::read_to_string(&self.paths.distribution_file)?;
+        self.formatter.verbose(&format!("Read {} bytes from distribution file", content.len()))?;
         
         // Try to parse the TOML content
         match toml::from_str::<Distribution>(&content) {
-            Ok(_) => {
+            Ok(_distribution) => {
+                self.formatter.verbose("TOML syntax is valid")?;
                 self.formatter.validation("Valid TOML syntax")?;
                 
                 // Show basic info
                 let line_count = content.lines().count();
+                self.formatter.verbose(&format!("Distribution file has {} lines", line_count))?;
                 self.formatter.print("Line count: ", Some(Color::Cyan), false)?;
                 self.formatter.print(&format!("{} lines", line_count), None, false)?;
                 writeln!(self.formatter.stdout)?;
                 
                 let tools = self.distribution_parser.get_tools()?;
+                let total_files = tools.iter().fold(0, |acc, tool| {
+                    if let Ok(files) = self.distribution_parser.get_files(tool) {
+                        acc + files.len()
+                    } else {
+                        acc
+                    }
+                });
+                
+                self.formatter.verbose(&format!("Found {} tools and {} files in distribution", tools.len(), total_files))?;
                 self.formatter.print("Total tools: ", Some(Color::Cyan), false)?;
                 self.formatter.print(&format!("{}", tools.len()), None, false)?;
                 writeln!(self.formatter.stdout)?;
                 
+                if self.verbose {
+                    self.formatter.print("Total files tracked: ", Some(Color::Cyan), false)?;
+                    self.formatter.print(&format!("{}", total_files), None, false)?;
+                    writeln!(self.formatter.stdout)?;
+                    
+                    // List all tools and file counts in verbose mode
+                    for tool in &tools {
+                        if let Ok(files) = self.distribution_parser.get_files(tool) {
+                            self.formatter.print(&format!("  - {}: ", tool), Some(Color::White), true)?;
+                            self.formatter.print(&format!("{} files", files.len()), None, false)?;
+                            writeln!(self.formatter.stdout)?;
+                        }
+                    }
+                }
+                
                 writeln!(self.formatter.stdout)?;
+                self.formatter.verbose("Precheck completed successfully")?;
                 self.formatter.validation("Precheck passed successfully")?;
             },
             Err(e) => {
+                self.formatter.verbose(&format!("TOML syntax is invalid: {}", e))?;
                 self.formatter.error(&format!("Invalid TOML syntax: {}", e))?;
                 return Err(DotfilesError::DistributionParseError(e.to_string()).into());
             }
@@ -1113,16 +1294,28 @@ fn main() -> Result<()> {
         println!("dotfiles-rs {}", env!("CARGO_PKG_VERSION"));
         println!("Build identity: {}", env!("BUILD_IDENTITY", "unknown"));
         println!("Newest file: {}", env!("NEWEST_FILE", "unknown"));
+        if cli.verbose {
+            println!("Verbose mode enabled");
+        }
         return Ok(());
     }
     
     // Automatically use embedded mode if files are embedded
     let mut app = if has_embedded_files() {
         println!("Using embedded dotfiles (found {} files)", EMBEDDED_FILES.len());
-        App::from_embedded()?
+        App::from_embedded(cli.verbose, cli.all)?
     } else {
-        App::new()?
+        App::new(cli.verbose, cli.all)?
     };
+    
+    if app.verbose {
+        app.formatter.verbose("Starting application in verbose mode")?;
+        if app.show_all {
+            app.formatter.verbose("Showing all files including identical ones")?;
+        } else {
+            app.formatter.verbose("Only showing modified or missing files")?;
+        }
+    }
     
     app.run(&cli.command.unwrap())?;
     
