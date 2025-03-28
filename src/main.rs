@@ -157,6 +157,14 @@ impl Formatter {
         Ok(())
     }
     
+    fn action(&mut self, message: &str) -> Result<()> {
+        // Use cyan color for actions that modify the filesystem
+        self.print("+ ", Some(Color::Cyan), false)?;
+        self.print(message, None, false)?;
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
     fn header(&mut self, message: &str) -> Result<()> {
         self.print(message, None, true)?;
         writeln!(self.stdout)?;
@@ -736,9 +744,12 @@ impl App {
         
         let dest_dir = self.paths.config_section_dir(tool);
         if !dest_dir.exists() {
-            self.formatter
-                .warning(&format!("Creating directory: {}", dest_dir.display()))?;
-            create_dir_all(&dest_dir)?;
+            // Only create directories for commands that should modify the filesystem
+            if action == "install" || action == "sync" {
+                self.formatter
+                    .action(&format!("Creating directory: {}", dest_dir.display()))?;
+                create_dir_all(&dest_dir)?;
+            }
         }
         
         let mut file_manager = match self.mode {
