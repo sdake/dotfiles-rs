@@ -68,10 +68,6 @@ dotfiles-rs [COMMAND]
 - `usage` - Show usage information
 - `help` - Print help message
 
-### Options
-
-- `--embedded, -e` - Use files from the embedded archive instead of filesystem
-
 ### Examples
 
 ```bash
