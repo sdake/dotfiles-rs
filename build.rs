@@ -103,7 +103,10 @@ fn main() {
     // Process each section in distribution.toml
     let mut embedded_count = 0;
     
-    if let Value::Table(sections) = distribution {
+    // Clone distribution for embedding files
+    let distribution_clone = distribution.clone();
+    
+    if let Value::Table(sections) = distribution_clone {
         for (section_name, section_data) in sections {
             // Skip sections that start with underscore (convention for metadata)
             if section_name.starts_with('_') {
@@ -148,4 +151,80 @@ fn main() {
     writeln!(file_map, "}});").unwrap();
     
     println!("cargo:warning=Embedded {} files from distribution.toml into the binary", embedded_count);
+    
+    // Find the newest file timestamp to use as build identity
+    let mut newest_timestamp = 0;
+    let mut newest_file = String::new();
+    
+    // Check timestamp of distribution.toml itself
+    if let Ok(metadata) = std::fs::metadata(&distribution_path) {
+        if let Ok(modified_time) = metadata.modified() {
+            if let Ok(system_time) = modified_time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+                let timestamp = system_time.as_secs();
+                if timestamp > newest_timestamp {
+                    newest_timestamp = timestamp;
+                    newest_file = distribution_path.clone();
+                }
+            }
+        }
+    }
+    
+    // Process all embedded files - use a fresh parse to avoid ownership issues
+    let distribution_for_timestamp = match fs::read_to_string(&distribution_path) {
+        Ok(content) => match toml::from_str::<Value>(&content) {
+            Ok(parsed) => parsed,
+            Err(_) => Value::Table(toml::map::Map::new()),
+        },
+        Err(_) => Value::Table(toml::map::Map::new()),
+    };
+    
+    if let Value::Table(sections) = distribution_for_timestamp {
+        for (section_name, section_data) in sections {
+            if section_name.starts_with('_') {
+                continue;
+            }
+            
+            if let Value::Table(table) = section_data {
+                if let Some(Value::Array(files)) = table.get("files") {
+                    for file_value in files {
+                        if let Value::String(file) = file_value {
+                            let file_path = format!("{}/config/{}/{}", dotfiles_dir, section_name, file);
+                            
+                            if let Ok(metadata) = std::fs::metadata(&file_path) {
+                                if let Ok(modified_time) = metadata.modified() {
+                                    if let Ok(system_time) = modified_time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+                                        let timestamp = system_time.as_secs();
+                                        if timestamp > newest_timestamp {
+                                            newest_timestamp = timestamp;
+                                            newest_file = file_path.clone();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Convert timestamp to formatted datetime string
+    if newest_timestamp > 0 {
+        use std::time::{UNIX_EPOCH, Duration};
+        use chrono::{DateTime, Utc, Datelike, Timelike};
+        
+        let dt = DateTime::<Utc>::from(UNIX_EPOCH + Duration::from_secs(newest_timestamp));
+        let week_num = dt.iso_week().week();
+        
+        let build_identity = format!("{:04}{:02}{:02}-{:02}-{:02}{:02}{:02}",
+            dt.year(), dt.month(), dt.day(),
+            week_num,
+            dt.hour(), dt.minute(), dt.second());
+            
+        println!("cargo:rustc-env=BUILD_IDENTITY={}", build_identity);
+        println!("cargo:rustc-env=NEWEST_FILE={}", newest_file);
+    } else {
+        println!("cargo:rustc-env=BUILD_IDENTITY=00000000-00-000000");
+        println!("cargo:rustc-env=NEWEST_FILE=unknown");
+    }
 }

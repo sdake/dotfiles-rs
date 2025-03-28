@@ -53,11 +53,13 @@ const ARROW_MARK: &str = "→";
 #[clap(
     name = "dotfiles-rs",
     about = "Manages dotfiles between system configuration directories and git repository",
-    version = "0.1.0"
+    version = env!("CARGO_PKG_VERSION"),
+    after_help = "Build identity: ",
+    after_long_help = concat!("Build identity: ", env!("BUILD_IDENTITY", "unknown"), "\nNewest file: ", env!("NEWEST_FILE", "unknown"))
 )]
 struct Cli {
     #[clap(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -94,6 +96,9 @@ enum Commands {
     
     /// Show usage information
     Usage,
+    
+    /// Show version and build information
+    Version,
 }
 
 // Output formatter helper
@@ -869,11 +874,22 @@ impl App {
     }
     
     fn run(&mut self, command: &Commands) -> Result<()> {
-        // Check required paths
-        self.check_paths()?;
-        
-        // Create dotignore if it doesn't exist
-        self.create_dotignore()?;
+        match command {
+            Commands::Version => {
+                // Print version and build information
+                println!("dotfiles-rs {}", env!("CARGO_PKG_VERSION"));
+                println!("Build identity: {}", env!("BUILD_IDENTITY", "unknown"));
+                println!("Newest file: {}", env!("NEWEST_FILE", "unknown"));
+                return Ok(());
+            },
+            _ => {
+                // Check required paths
+                self.check_paths()?;
+                
+                // Create dotignore if it doesn't exist
+                self.create_dotignore()?;
+            }
+        }
         
         match command {
             Commands::Sync => self.run_sync()?,
@@ -882,6 +898,7 @@ impl App {
             Commands::Add { tool, file } => self.run_add(tool, file)?,
             Commands::Remove { tool, file } => self.run_remove(tool, file)?,
             Commands::Precheck => self.run_precheck()?,
+            Commands::Version => {}, // Already handled above
             Commands::Usage => {
                 // Print help information
                 println!("dotfiles-rs - Manages dotfiles between system configuration and git repository");
@@ -893,6 +910,7 @@ impl App {
                 println!("  add <tool> <file> - Add a file to distribution.toml and copy to repo");
                 println!("  remove <tool> <file> - Remove a file from distribution.toml");
                 println!("  precheck      - Check that distribution.toml exists and has valid syntax");
+                println!("  version       - Show version and build information");
                 println!("  usage         - Show this help message");
                 println!();
                 println!("Files matching patterns in $HOME/repos/dotfiles/.dotignore will be skipped");
@@ -906,6 +924,14 @@ impl App {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     
+    // Display version and build identity if no command was provided
+    if cli.command.is_none() {
+        println!("dotfiles-rs {}", env!("CARGO_PKG_VERSION"));
+        println!("Build identity: {}", env!("BUILD_IDENTITY", "unknown"));
+        println!("Newest file: {}", env!("NEWEST_FILE", "unknown"));
+        return Ok(());
+    }
+    
     // Automatically use embedded mode if files are embedded
     let mut app = if has_embedded_files() {
         println!("Using embedded dotfiles (found {} files)", EMBEDDED_FILES.len());
@@ -914,7 +940,7 @@ fn main() -> Result<()> {
         App::new()?
     };
     
-    app.run(&cli.command)?;
+    app.run(&cli.command.unwrap())?;
     
     Ok(())
 }
