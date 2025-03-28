@@ -251,18 +251,6 @@ The script will:
 2. Build a release binary with these embedded files
 3. The resulting binary will be at `target/release/dotfiles-rs`
 
-### Using the Embedded Binary
-
-To use the embedded dotfiles, run the binary with the `--embedded` flag:
-
-```bash
-# Install dotfiles from the embedded archive
-./target/release/dotfiles-rs --embedded install
-
-# Check status of embedded dotfiles
-./target/release/dotfiles-rs --embedded status
-```
-
 ## Development
 
 ```bash
