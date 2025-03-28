@@ -113,12 +113,13 @@ impl Formatter {
         }
     }
     
-    fn print(&mut self, message: &str, color: Option<Color>, bold: bool) -> Result<()> {
+    fn print(&mut self, message: &str, color: Option<Color>, bold_italic: bool) -> Result<()> {
         let mut color_spec = ColorSpec::new();
         if let Some(c) = color {
             color_spec.set_fg(Some(c));
         }
-        color_spec.set_bold(bold);
+        color_spec.set_bold(bold_italic);
+        color_spec.set_italic(bold_italic);
         
         self.stdout.set_color(&color_spec)?;
         write!(self.stdout, "{}", message)?;
@@ -129,35 +130,209 @@ impl Formatter {
     
     fn success(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
-        self.print(message, None, false)?;
+        
+        // Format the message with the part before the colon in bold italics
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Green), true)?; // Make the status part green and bold
+            self.print(content, None, false)?;
+        } else {
+            self.print(message, None, false)?;
+        }
+        
         writeln!(self.stdout)?;
         Ok(())
     }
     
     fn warning(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", WARNING_MARK), Some(Color::Yellow), false)?;
-        self.print(message, None, false)?;
+        
+        // Special case for "Not installed:" messages
+        if message.starts_with("Not installed:") {
+            // Redirect to not_installed formatter for consistent styling
+            return self.not_installed(message);
+        }
+        
+        // Special case for "File not found:" messages
+        if message.starts_with("File not found:") || message.starts_with("Local file not found:") {
+            if let Some(idx) = message.find(": ") {
+                let (status, path) = message.split_at(idx + 2);
+                self.print(status, Some(Color::Yellow), true)?; // Make the status part yellow and bold
+                self.print(path, None, false)?;
+            } else {
+                self.print(message, None, false)?;
+            }
+        } else {
+            // Default handling for other warnings with the part before the colon in bold
+            if let Some(idx) = message.find(": ") {
+                let (status, content) = message.split_at(idx + 2);
+                self.print(status, Some(Color::Yellow), true)?; // Make the status part yellow and bold
+                self.print(content, None, false)?;
+            } else {
+                self.print(message, None, false)?;
+            }
+        }
+        
         writeln!(self.stdout)?;
         Ok(())
     }
     
     fn error(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", CROSS_MARK), Some(Color::Red), false)?;
-        self.print(message, None, false)?;
+        
+        // Format error messages with status text in red and bold
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Red), true)?; // Make the status part red and bold
+            self.print(content, None, false)?;
+        } else {
+            self.print(message, None, false)?;
+        }
+        
         writeln!(self.stdout)?;
         Ok(())
     }
     
     fn info(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", INFO_MARK), Some(Color::Blue), false)?;
-        self.print(message, None, false)?;
+        
+        // Process tool names differently
+        if message.starts_with("Processing tool:") {
+            if let Some(idx) = message.find(": ") {
+                let (status, tool) = message.split_at(idx + 2);
+                self.print(status, Some(Color::Blue), true)?; // Make the status part blue and bold
+                self.print(tool, Some(Color::White), true)?;  // Make the tool name white and bold
+            } else {
+                self.print(message, None, false)?;
+            }
+        } else {
+            // Format other info messages with status text in blue and bold
+            if let Some(idx) = message.find(": ") {
+                let (status, content) = message.split_at(idx + 2);
+                self.print(status, Some(Color::Blue), true)?; // Make the status part blue and bold
+                self.print(content, None, false)?;
+            } else {
+                self.print(message, None, false)?;
+            }
+        }
+        
         writeln!(self.stdout)?;
         Ok(())
     }
     
     fn modified(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", ARROW_MARK), Some(Color::Magenta), false)?;
-        self.print(message, None, false)?;
+        
+        // Format modified messages with status text in magenta and bold
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Magenta), true)?; // Make the status part magenta and bold
+            self.print(content, None, false)?;
+        } else {
+            self.print(message, None, false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn identical(&mut self, message: &str) -> Result<()> {
+        // Use green for icon, and make the text blue for better visibility
+        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
+        
+        // Split the message into parts: "Identical: " and the actual path
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Blue), true)?; // Make the "Identical: " part blue and bold
+            self.print(content, None, false)?;
+        } else {
+            // Fallback if there's no ": " in the message
+            self.print(message, Some(Color::Blue), false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn not_installed(&mut self, message: &str) -> Result<()> {
+        // Keep the warning icon but use a distinct color for "Not installed: "
+        self.print(&format!("{} ", WARNING_MARK), Some(Color::Yellow), false)?;
+        
+        // Split the message into parts: "Not installed: " and the actual path
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Cyan), true)?; // Make the "Not installed: " part cyan and bold
+            self.print(content, None, false)?;
+        } else {
+            // Fallback if there's no ": " in the message
+            self.print(message, None, false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn installed(&mut self, message: &str) -> Result<()> {
+        // Use green checkmark with purple text for "Installed to local: "
+        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
+        
+        // Split the message into parts: "Installed to local: " and the actual path
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Magenta), true)?; // Make the "Installed to local: " part magenta and bold
+            self.print(content, None, false)?;
+        } else {
+            // Fallback if there's no ": " in the message
+            self.print(message, None, false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn synced(&mut self, message: &str) -> Result<()> {
+        // Use green checkmark with green text for "Synced to repo: "
+        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
+        
+        // Split the message into parts: "Synced to repo: " and the actual path
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Green), true)?; // Make the "Synced to repo: " part green and bold
+            self.print(content, None, false)?;
+        } else {
+            // Fallback if there's no ": " in the message
+            self.print(message, None, false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn tracking(&mut self, message: &str) -> Result<()> {
+        // Use green checkmark with blue text for "Added to tracking: "
+        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
+        
+        // Split the message into parts: "Added to tracking: " and the actual path
+        if let Some(idx) = message.find(": ") {
+            let (status, content) = message.split_at(idx + 2);
+            self.print(status, Some(Color::Blue), true)?; // Make the "Added to tracking: " part blue and bold
+            self.print(content, None, false)?;
+        } else {
+            // Fallback if there's no ": " in the message
+            self.print(message, None, false)?;
+        }
+        
+        writeln!(self.stdout)?;
+        Ok(())
+    }
+    
+    fn validation(&mut self, message: &str) -> Result<()> {
+        // Use green checkmark with cyan text for validation messages
+        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
+        
+        // Always make validation messages bold
+        self.print(message, Some(Color::Cyan), true)?;
+        
         writeln!(self.stdout)?;
         Ok(())
     }
@@ -165,7 +340,16 @@ impl Formatter {
     fn action(&mut self, message: &str) -> Result<()> {
         // Use cyan color for actions that modify the filesystem
         self.print("+ ", Some(Color::Cyan), false)?;
-        self.print(message, None, false)?;
+        
+        // Split the message into parts if it contains ": "
+        if let Some(idx) = message.find(": ") {
+            let (action, content) = message.split_at(idx + 2);
+            self.print(action, Some(Color::Cyan), true)?;  // Make the action part cyan and bold
+            self.print(content, None, false)?;
+        } else {
+            self.print(message, None, false)?;
+        }
+        
         writeln!(self.stdout)?;
         Ok(())
     }
@@ -514,7 +698,7 @@ impl<'a> FileManager<'a> {
                 },
             }
             
-            self.formatter.success(&format!("Installed to local: {}", display_path))?;
+            self.formatter.installed(&format!("Installed to local: {}", display_path))?;
         } else {
             self.formatter.warning(&format!("File not found: {}", display_path))?;
         }
@@ -538,7 +722,7 @@ impl<'a> FileManager<'a> {
             }
             
             fs::copy(&config_file, &repo_file)?;
-            self.formatter.success(&format!("Synced to repo: {}", display_path))?;
+            self.formatter.synced(&format!("Synced to repo: {}", display_path))?;
         } else {
             self.formatter.warning(&format!("Local file not found: {}", display_path))?;
         }
@@ -566,7 +750,7 @@ impl<'a> FileManager<'a> {
         }
         
         if !config_file.exists() {
-            self.formatter.warning(&format!("Not installed: {}", display_path))?;
+            self.formatter.not_installed(&format!("Not installed: {}", display_path))?;
             return Ok(());
         }
         
@@ -578,7 +762,7 @@ impl<'a> FileManager<'a> {
         let config_content = fs::read(&config_file)?;
         
         if source_content == config_content {
-            self.formatter.success(&format!("Identical: {}", display_path))?;
+            self.formatter.identical(&format!("Identical: {}", display_path))?;
         } else {
             self.formatter.modified(&format!("Modified locally: {}", display_path))?;
         }
@@ -608,7 +792,7 @@ impl<'a> FileManager<'a> {
         
         // Copy file to repo
         fs::copy(&source_file, &dest_file)?;
-        self.formatter.success(&format!("Added to tracking: {}", display_path))?;
+        self.formatter.tracking(&format!("Added to tracking: {}", display_path))?;
         
         Ok(())
     }
@@ -838,7 +1022,7 @@ impl App {
                 self.paths.distribution_file.to_string_lossy().to_string()).into());
         }
         
-        self.formatter.success("Distribution file exists")?;
+        self.formatter.validation("Distribution file exists")?;
         
         // Check if it's valid TOML
         self.formatter.print("Checking TOML syntax... ", Some(Color::Cyan), false)?;
@@ -848,7 +1032,7 @@ impl App {
         // Try to parse the TOML content
         match toml::from_str::<Distribution>(&content) {
             Ok(_) => {
-                self.formatter.success("Valid TOML syntax")?;
+                self.formatter.validation("Valid TOML syntax")?;
                 
                 // Show basic info
                 let line_count = content.lines().count();
@@ -862,7 +1046,7 @@ impl App {
                 writeln!(self.formatter.stdout)?;
                 
                 writeln!(self.formatter.stdout)?;
-                self.formatter.success("Precheck passed successfully")?;
+                self.formatter.validation("Precheck passed successfully")?;
             },
             Err(e) => {
                 self.formatter.error(&format!("Invalid TOML syntax: {}", e))?;
