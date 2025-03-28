@@ -11,6 +11,7 @@ directory and a Git repository.
 - Add or remove files from tracking
 - Built-in ignore patterns for sensitive files
 - Simple TOML-based configuration format
+- Support for creating a self-contained binary with embedded dotfiles
 
 ## Installation
 
@@ -95,6 +96,10 @@ dotfiles-rs [COMMAND]
 - `usage` - Show usage information
 - `help` - Print help message
 
+### Options
+
+- `--embedded, -e` - Use files from the embedded archive instead of filesystem
+
 ### Examples
 
 ```bash
@@ -112,6 +117,9 @@ dotfiles-rs sync
 
 # Verify your distribution.toml file is valid
 dotfiles-rs precheck
+
+# Use the embedded dotfiles (if built with embedded files)
+dotfiles-rs --embedded install
 ```
 
 ## Getting Started: Adding Your Dotfiles
@@ -249,6 +257,51 @@ Example `.dotignore`:
 *.key
 *.pem
 ```
+
+## Embedded Dotfiles
+
+You can create a self-contained binary that includes all your dotfiles embedded within it. This is useful for:
+
+- Deploying your dotfiles to a new machine without needing to clone a repository
+- Keeping your dotfiles private while still being able to use them on multiple machines
+- Simplifying the installation process with a single executable file
+
+### Building with Embedded Dotfiles
+
+The project includes a helper script to build a binary with your dotfiles embedded:
+
+```bash
+# Make the script executable if needed
+chmod +x build_with_dotfiles.sh
+
+# Run the script to build a binary with embedded dotfiles
+./build_with_dotfiles.sh
+```
+
+The script will:
+1. Copy your dotfiles from `$HOME/repos/dotfiles` to the `embedded_dotfiles` directory
+2. Build a release binary with these embedded files
+3. The resulting binary will be at `target/release/dotfiles-rs`
+
+### Using the Embedded Binary
+
+To use the embedded dotfiles, run the binary with the `--embedded` flag:
+
+```bash
+# Install dotfiles from the embedded archive
+./target/release/dotfiles-rs --embedded install
+
+# Check status of embedded dotfiles
+./target/release/dotfiles-rs --embedded status
+```
+
+### Customizing the Embedded Files
+
+If you want to manually control which files are embedded:
+
+1. Copy only the files you want to the `embedded_dotfiles` directory
+2. Ensure you have a valid `distribution.toml` and `.dotignore` file
+3. Run `cargo build --release` to build the binary
 
 ## Development
 

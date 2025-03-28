@@ -214,3 +214,87 @@ The distribution.toml file serves multiple purposes:
 2. Command implementations need to handle the limitation of embedded mode appropriately
 3. Clear error messages should be provided when sync is attempted in embedded mode
 4. File path handling must be consistent between embedded and filesystem modes
+
+## Implementation Details
+
+### Required Dependencies
+
+Add these to Cargo.toml:
+
+```toml
+[build-dependencies]
+toml = "0.8"
+
+[dependencies]
+once_cell = "1.18"
+```
+
+### Directory Structure
+
+```
+dotfiles-rs/
+├── Cargo.toml       # Project manifest
+├── build.rs         # Build script that embeds files
+├── src/
+│   └── main.rs      # Main program code
+└── target/
+    └── release/
+        └── dotfiles-rs  # Final self-contained binary
+```
+
+### File Format Handling
+
+Each file is stored as raw bytes, allowing binary files to be stored without corruption. Text files can be converted to strings when needed:
+
+```rust
+fn get_text_file(path: &str) -> Result<String> {
+    let bytes = get_file(path)?;
+    String::from_utf8(bytes)
+        .map_err(|e| anyhow!("Failed to convert file to UTF-8: {}", e))
+}
+```
+
+### Error Handling
+
+The system should handle various error cases gracefully:
+
+1. **Missing files at compile time**: Warn but continue building
+2. **Attempted sync in embedded mode**: Clear error explaining limitation
+3. **Access to non-existent embedded file**: Proper error rather than panic
+
+### Security Considerations
+
+1. **Sensitive Data**: Warning during build if sensitive patterns are detected
+2. **File Permissions**: Preserve original file permissions when installing
+3. **Verification**: Option to verify checksums of installed files
+
+## Future Enhancements
+
+1. **Compression**: Compress embedded files to reduce binary size
+2. **Encryption**: Optional encryption of sensitive embedded files
+3. **Partial Installation**: Install only selected tools from the binary
+4. **Configuration Profiles**: Support for different configuration profiles embedded in the same binary
+5. **Delta Updates**: Mechanism to only update changed files
+
+## Example Compile Workflow
+
+1. Make changes to your dotfiles
+2. Run `cargo build --release` to create a new self-contained binary
+3. The build script reads distribution.toml and embeds all referenced files
+4. The resulting binary contains your dotfiles and can be distributed
+
+## Example Usage Workflow
+
+1. Copy the self-contained binary to a new system
+2. Run `dotfiles status` to see what will be installed
+3. Run `dotfiles install` to deploy your configuration
+4. Use the new configuration immediately
+
+## Conclusion
+
+This design creates a powerful, flexible dotfiles management solution that can operate in two modes:
+
+1. **Development Mode**: Uses filesystem for editing and syncing
+2. **Deployment Mode**: Uses embedded files for installation and verification
+
+By automatically selecting the appropriate mode, the tool provides a seamless experience while enabling advanced use cases like deploying configurations to new systems with a single binary.
