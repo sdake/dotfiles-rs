@@ -234,23 +234,6 @@ You can create a self-contained binary that includes all your dotfiles embedded 
 - Keeping your dotfiles private while still being able to use them on multiple machines
 - Simplifying the installation process with a single executable file
 
-### Building with Embedded Dotfiles
-
-The project includes a helper script to build a binary with your dotfiles embedded:
-
-```bash
-# Make the script executable if needed
-chmod +x build_with_dotfiles.sh
-
-# Run the script to build a binary with embedded dotfiles
-./build_with_dotfiles.sh
-```
-
-The script will:
-1. Copy your dotfiles from `$HOME/repos/dotfiles` to the `embedded_dotfiles` directory
-2. Build a release binary with these embedded files
-3. The resulting binary will be at `target/release/dotfiles-rs`
-
 ## Development
 
 ```bash
