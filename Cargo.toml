@@ -1,8 +1,8 @@
 [package]
 name = "dotfiles-rs"
-version = "0.1.0"
+version = "0.4.2"
 edition = "2021"
-description = "A dotfiles manager."
+description = "Dotfiles-rs builds a self-contained binary including both management code and dotfile configuration."
 authors = ["Steven Dake <steven.dake@gmail.com>", "Steven Dake <steve@computelify.com>"]
 
 [dependencies]
