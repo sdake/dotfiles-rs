@@ -263,14 +263,6 @@ To use the embedded dotfiles, run the binary with the `--embedded` flag:
 ./target/release/dotfiles-rs --embedded status
 ```
 
-### Customizing the Embedded Files
-
-If you want to manually control which files are embedded:
-
-1. Copy only the files you want to the `embedded_dotfiles` directory
-2. Ensure you have a valid `distribution.toml` and `.dotignore` file
-3. Run `cargo build --release` to build the binary
-
 ## Development
 
 ```bash
