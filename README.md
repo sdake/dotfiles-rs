@@ -46,18 +46,6 @@ cargo build --release --target=x86_64-unknown-linux-musl
 # The static binary will be in target/x86_64-unknown-linux-musl/release/dotfiles-rs
 ```
 
-#### Cross-compilation:
-
-```bash
-# Build for different platforms using cargo-zigbuild
-cargo install cargo-zigbuild
-
-# For Linux
-cargo zigbuild --release --target=x86_64-unknown-linux-gnu
-# For Windows
-cargo zigbuild --release --target=x86_64-pc-windows-gnu
-```
-
 ### Prerequisites
 
 - Rust 1.70.0 or later
