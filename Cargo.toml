@@ -1,9 +1,12 @@
 [package]
 name = "dotfiles-rs"
 version = "0.4.2"
-edition = "2021"
-description = "Dotfiles-rs builds a self-contained binary including both management code and dotfile configuration."
 authors = ["Steven Dake <steven.dake@gmail.com>", "Steven Dake <steve@computelify.com>"]
+description = "Dotfiles-rs builds a self-contained binary including both management code and dotfile configuration."
+edition = "2021"
+readme = "README.md"
+homepage = "https://github.com/sdake/dotfiles-rs"
+repository = "https://github.com/sdake/dotfiles-rs"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
