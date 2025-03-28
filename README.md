@@ -46,22 +46,6 @@ cargo build --release --target=x86_64-unknown-linux-musl
 # The static binary will be in target/x86_64-unknown-linux-musl/release/dotfiles-rs
 ```
 
-#### On macOS (using cargo-zigbuild):
-
-Since macOS doesn't support fully static binaries natively, you can use the Zig compiler:
-
-```bash
-# Install cargo-zigbuild
-cargo install cargo-zigbuild
-
-# Build for macOS
-cargo zigbuild --release --target=x86_64-apple-darwin
-# Or for Apple Silicon
-cargo zigbuild --release --target=aarch64-apple-darwin
-
-# The binary will be in target/{target}/release/dotfiles-rs
-```
-
 #### Cross-compilation:
 
 ```bash
