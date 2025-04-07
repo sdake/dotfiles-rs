@@ -87,7 +87,7 @@ dotfiles-rs sync
 dotfiles-rs precheck
 
 # Use the embedded dotfiles (if built with embedded files)
-dotfiles-rs --embedded install
+dotfiles-rs +install
 ```
 
 ## Getting Started: Adding Your Dotfiles

@@ -52,10 +52,10 @@ const ARROW_MARK: &str = "→";
 #[derive(Parser)]
 #[clap(
     name = "dotfiles-rs",
-    about = "Manages dotfiles between system configuration directories and git repository",
+    about = "Dotfiles management done right.",
     version = env!("CARGO_PKG_VERSION"),
-    after_help = "Build identity: ",
-    after_long_help = concat!("Build identity: ", env!("BUILD_IDENTITY", "unknown"), "\nNewest file: ", env!("NEWEST_FILE", "unknown"))
+    override_usage = "dotfiles-rs +<action> [flags]",
+    help_template = "The dotfiles-rs tool is a self-contained binary used to deploy your environment configuration.\n\nUsage: dotfiles-rs +<action> [flags]\n\nActions:\n{subcommands}\n\nOptions:\n{options}\n\nBuild identity: {version}\n",
 )]
 struct Cli {
     /// Enable verbose output with detailed information
@@ -65,22 +65,29 @@ struct Cli {
     /// Show all files including identical ones when checking status
     #[clap(short, long, global = true)]
     all: bool,
-
+    
+    /// Action to run
     #[clap(subcommand)]
     command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
+#[command(help_template = "Manages dotfiles between system configuration directories and git repository\n\nUsage: dotfiles-rs +<action> [flags]\n\nActions:\n{subcommands}\n\nOptions:\n{options}\n")]
+#[command(subcommand_help_heading = "Actions")]
 enum Commands {
+    #[command(name = "+sync")]
     /// Sync files from $HOME/.config to repository
     Sync,
     
+    #[command(name = "+status")]
     /// Show status of files in distribution.toml
     Status,
     
+    #[command(name = "+install")]
     /// Install files from repository to $HOME/.config
     Install,
     
+    #[command(name = "+add")]
     /// Add a file to distribution.toml and copy to repo
     Add {
         /// The tool name (directory under .config)
@@ -90,6 +97,7 @@ enum Commands {
         file: String,
     },
     
+    #[command(name = "+remove")]
     /// Remove a file from distribution.toml
     Remove {
         /// The tool name (directory under .config)
@@ -99,14 +107,21 @@ enum Commands {
         file: String,
     },
     
+    #[command(name = "+precheck")]
     /// Check that distribution.toml exists and has valid syntax
     Precheck,
     
+    #[command(name = "+usage")]
     /// Show usage information
     Usage,
     
+    #[command(name = "+version")]
     /// Show version and build information
     Version,
+    
+    #[command(name = "+help")]
+    /// Show this help information
+    Help,
 }
 
 // Output formatter helper
@@ -138,21 +153,7 @@ impl Formatter {
     }
     
     
-    fn success(&mut self, message: &str) -> Result<()> {
-        self.print(&format!("{} ", CHECK_MARK), Some(Color::Green), false)?;
-        
-        // Format the message with the part before the colon in bold italics
-        if let Some(idx) = message.find(": ") {
-            let (status, content) = message.split_at(idx + 2);
-            self.print(status, Some(Color::Green), true)?; // Make the status part green and bold
-            self.print(content, None, false)?;
-        } else {
-            self.print(message, None, false)?;
-        }
-        
-        writeln!(self.stdout)?;
-        Ok(())
-    }
+    // Removed unused success method
     
     fn warning(&mut self, message: &str) -> Result<()> {
         self.print(&format!("{} ", WARNING_MARK), Some(Color::Yellow), false)?;
@@ -1247,6 +1248,10 @@ impl App {
                 println!("Newest file: {}", env!("NEWEST_FILE", "unknown"));
                 return Ok(());
             },
+            Commands::Help => {
+                // Reuse the Usage command for now
+                return self.run_usage();
+            },
             _ => {
                 // Check required paths
                 self.check_paths()?;
@@ -1264,60 +1269,151 @@ impl App {
             Commands::Remove { tool, file } => self.run_remove(tool, file)?,
             Commands::Precheck => self.run_precheck()?,
             Commands::Version => {}, // Already handled above
-            Commands::Usage => {
-                // Print help information
-                println!("dotfiles-rs - Manages dotfiles between system configuration and git repository");
-                println!();
-                println!("Commands:");
-                println!("  sync          - Sync files from $HOME/.config to $HOME/repos/dotfiles/config");
-                println!("  status        - Show status of files in distribution.toml");
-                println!("  install       - Install files from $HOME/repos/dotfiles/config to $HOME/.config");
-                println!("  add <tool> <file> - Add a file to distribution.toml and copy to repo");
-                println!("  remove <tool> <file> - Remove a file from distribution.toml");
-                println!("  precheck      - Check that distribution.toml exists and has valid syntax");
-                println!("  version       - Show version and build information");
-                println!("  usage         - Show this help message");
-                println!();
-                println!("Files matching patterns in $HOME/repos/dotfiles/.dotignore will be skipped");
-            }
+            Commands::Help => {}, // Already handled above
+            Commands::Usage => self.run_usage()?,
         }
         
+        Ok(())
+    }
+    
+    fn run_usage(&self) -> Result<()> {
+        // Print help information
+        println!("dotfiles-rs - Manages dotfiles between system configuration and git repository");
+        println!();
+        println!("Actions:");
+        println!("  +sync                 - Sync configuration.");
+        println!("  +status               - Show configuration status.");
+        println!("  +install              - Install configuration.");
+        println!("  +add <tool> <file>    - Add file to distribution.toml.");
+        println!("  +remove <tool> <file> - Remove file from distribution.toml.");
+        println!("  +precheck             - Check that distribution.toml exists and has valid syntax");
+        println!("  +version              - Show version and build information.");
+        println!("  +usage                - Show this help message.");
+        println!("  +help                 - Show this help message.");
+        println!();
+        println!("Usage: dotfiles-rs +<action> [flags]");
+        println!();
+        println!("Options:");
+        println!("  -v, --verbose  Enable verbose output with detailed information");
+        println!("  -a, --all      Show all files including identical ones when checking status");
+        println!();
+        println!("Examples:");
+        println!("  dotfiles-rs +status");
+        println!("  dotfiles-rs +install");
+        println!("  dotfiles-rs +add nvim init.lua");
+        println!();
+        println!("Files matching patterns in $HOME/repos/dotfiles/.dotignore will be skipped");
         Ok(())
     }
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // Process raw arguments to check for +command style
+    let args: Vec<String> = std::env::args().collect();
     
-    // Display version and build identity if no command was provided
-    if cli.command.is_none() {
+    if args.len() <= 1 {
+        // No arguments - display version information
         println!("dotfiles-rs {}", env!("CARGO_PKG_VERSION"));
         println!("Build identity: {}", env!("BUILD_IDENTITY", "unknown"));
         println!("Newest file: {}", env!("NEWEST_FILE", "unknown"));
-        if cli.verbose {
-            println!("Verbose mode enabled");
-        }
+        
+        // Show basic usage
+        println!("\nUsage: dotfiles-rs +<action> [flags]");
+        println!("\nAll actions must be prefixed with a '+', for example:");
+        println!("  dotfiles-rs +status");
+        println!("  dotfiles-rs +install");
+        println!("  dotfiles-rs +precheck");
+        println!("  dotfiles-rs +usage (for more information)");
+        
         return Ok(());
     }
     
-    // Automatically use embedded mode if files are embedded
-    let mut app = if has_embedded_files() {
-        println!("Using embedded dotfiles (found {} files)", EMBEDDED_FILES.len());
-        App::from_embedded(cli.verbose, cli.all)?
-    } else {
-        App::new(cli.verbose, cli.all)?
+    // Handle the first command-line argument
+    let first_arg = &args[1];
+    
+    // Check if it's a help flag
+    if first_arg == "--help" || first_arg == "-h" {
+        let _cli = Cli::parse(); // This will display help and exit
+        return Ok(());
+    }
+    
+    // Verify action has a + prefix
+    if !first_arg.starts_with('+') || first_arg.len() <= 1 {
+        eprintln!("Error: Actions must be prefixed with '+' (for example: +install)");
+        eprintln!("Usage: dotfiles-rs +<action> [flags]");
+        eprintln!("Run 'dotfiles-rs +usage' for a list of available actions");
+        return Ok(());
+    }
+    
+    // No need to remove the + prefix anymore
+    let cmd = first_arg.to_lowercase();
+    
+    // Parse the action
+    let command = match cmd.as_str() {
+        "+sync" => Some(Commands::Sync),
+        "+status" => Some(Commands::Status),
+        "+install" => Some(Commands::Install),
+        "+precheck" => Some(Commands::Precheck),
+        "+usage" => Some(Commands::Usage),
+        "+version" => Some(Commands::Version),
+        "+add" => {
+            if args.len() >= 4 {
+                Some(Commands::Add {
+                    tool: args[2].clone(),
+                    file: args[3].clone(),
+                })
+            } else {
+                eprintln!("Error: +add requires tool and file arguments");
+                eprintln!("Usage: dotfiles-rs +add <tool> <file>");
+                return Ok(());
+            }
+        },
+        "+remove" => {
+            if args.len() >= 4 {
+                Some(Commands::Remove {
+                    tool: args[2].clone(),
+                    file: args[3].clone(),
+                })
+            } else {
+                eprintln!("Error: +remove requires tool and file arguments");
+                eprintln!("Usage: dotfiles-rs +remove <tool> <file>");
+                return Ok(());
+            }
+        },
+        "+help" => Some(Commands::Help),
+        _ => {
+            eprintln!("Unknown action: {}", cmd);
+            eprintln!("Run 'dotfiles-rs +usage' for a list of available actions");
+            return Ok(());
+        }
     };
     
-    if app.verbose {
+    // Get verbose and all flags
+    let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
+    let all = args.contains(&"--all".to_string()) || args.contains(&"-a".to_string());
+    
+    // Create app instance
+    let mut app = if has_embedded_files() {
+        println!("Using embedded dotfiles (found {} files)", EMBEDDED_FILES.len());
+        App::from_embedded(verbose, all)?
+    } else {
+        App::new(verbose, all)?
+    };
+    
+    // Set up verbose output if needed
+    if verbose {
         app.formatter.verbose("Starting application in verbose mode")?;
-        if app.show_all {
+        if all {
             app.formatter.verbose("Showing all files including identical ones")?;
         } else {
             app.formatter.verbose("Only showing modified or missing files")?;
         }
     }
     
-    app.run(&cli.command.unwrap())?;
+    if let Some(cmd) = command {
+        app.run(&cmd)?;
+    }
     
     Ok(())
 }
+
